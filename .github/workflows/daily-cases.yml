@@ -11,6 +11,11 @@ on:
         required: false
         default: true
         type: boolean
+      skip_live_collection:
+        description: "手动运行时跳过真实抓取，直接发布当前案例库；用于首次快速部署。"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -82,7 +87,20 @@ jobs:
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_MODEL: ${{ secrets.AI_MODEL }}
           AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
-        run: python scripts/run_daily.py
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_live_collection }}" = "true" ]; then
+            python scripts/build_site.py
+            {
+              echo "# SONIC CAT 专业鞋案例雷达"
+              echo ""
+              echo "- 手动首次部署：跳过真实抓取，发布当前案例库。"
+              echo "- 本轮新增案例：\`0\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "publish_allowed=true" >> "$GITHUB_OUTPUT"
+            echo "selected_total=0" >> "$GITHUB_OUTPUT"
+          else
+            python scripts/run_daily.py
+          fi
 
       - name: Run tests
         working-directory: source
