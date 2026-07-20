@@ -23,6 +23,7 @@ class XiaohongshuCollector(BaseCollector):
         max_candidates = int(self.source_config.get("max_candidates_per_category", 12))
         retry_count = int(self.source_config.get("retry_count", 2))
         timeout_ms = int(self.source_config.get("timeout_seconds", 25)) * 1000
+        deadline = time.monotonic() + int(self.source_config.get("deadline_seconds", 25))
         search_template = self.source_config.get("search_url", "https://www.xiaohongshu.com/search_result?keyword={keyword}")
         candidates: List[Candidate] = []
         seen = set()
@@ -32,11 +33,15 @@ class XiaohongshuCollector(BaseCollector):
             context = browser.new_context(storage_state=None, locale="zh-CN")
             try:
                 for keyword in keywords[:5]:
+                    if time.monotonic() >= deadline:
+                        break
                     if len(candidates) >= max_candidates:
                         break
                     url = search_template.replace("{keyword}", quote_plus(keyword))
                     last_error = None
                     for attempt in range(retry_count + 1):
+                        if time.monotonic() >= deadline:
+                            break
                         page = context.new_page()
                         try:
                             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)

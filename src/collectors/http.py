@@ -51,7 +51,7 @@ class HttpClient:
 
             response = requests.get(
                 url,
-                timeout=self.timeout,
+                timeout=(min(5, self.timeout), self.timeout),
                 headers={"User-Agent": self.user_agent, "Accept": accept},
             )
             response.raise_for_status()
@@ -64,7 +64,7 @@ class HttpClient:
             )
         except ImportError:
             request = Request(url, headers={"User-Agent": self.user_agent, "Accept": accept})
-            with urlopen(request, timeout=self.timeout) as response:  # nosec - configured public URLs only
+            with urlopen(request, timeout=min(self.timeout, 8)) as response:  # nosec - configured public URLs only
                 content = response.read()
                 charset = response.headers.get_content_charset() or "utf-8"
                 return HttpResponse(

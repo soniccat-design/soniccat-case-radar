@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, Iterable, List, Set
 from urllib.parse import urljoin
 
@@ -29,11 +30,16 @@ class GenericWebCollector(BaseCollector):
         candidates: List[Candidate] = []
         seen: Set[str] = set()
         max_candidates = int(self.source_config.get("max_candidates_per_category", 20))
+        deadline = time.monotonic() + int(self.source_config.get("deadline_seconds", 30))
 
         for domain in self.source_config.get("domains", []):
+            if time.monotonic() >= deadline:
+                break
             root = "https://%s" % domain
-            candidate_urls = self._discover_urls(client, root, domain, keywords, days)
+            candidate_urls = self._discover_urls(client, root, domain, keywords, days, deadline)
             for page_url, published_hint in candidate_urls:
+                if time.monotonic() >= deadline:
+                    return candidates
                 if page_url in seen:
                     continue
                 seen.add(page_url)
@@ -81,22 +87,30 @@ class GenericWebCollector(BaseCollector):
         domain: str,
         keywords: Iterable[str],
         days: int,
+        deadline: float,
     ) -> List[tuple]:
         rows: List[tuple] = []
-        rows.extend(self._from_rss(client, root, keywords, days))
-        rows.extend(self._from_sitemap(client, root, keywords, days))
-        rows.extend(self._from_search_and_listing(client, root, domain, keywords))
+        rows.extend(self._from_rss(client, root, keywords, days, deadline))
+        if time.monotonic() < deadline:
+            rows.extend(self._from_sitemap(client, root, keywords, days, deadline))
+        if time.monotonic() < deadline:
+            rows.extend(self._from_search_and_listing(client, root, domain, keywords, deadline))
         unique: List[tuple] = []
         seen = set()
+        max_urls = int(self.source_config.get("max_candidates_per_category", 20)) * 2
         for url, published_at in rows:
             if url not in seen:
                 seen.add(url)
                 unique.append((url, published_at))
+            if len(unique) >= max_urls:
+                break
         return unique
 
-    def _from_sitemap(self, client: HttpClient, root: str, keywords: Iterable[str], days: int) -> List[tuple]:
+    def _from_sitemap(self, client: HttpClient, root: str, keywords: Iterable[str], days: int, deadline: float) -> List[tuple]:
         rows: List[tuple] = []
         for path in self.source_config.get("sitemap_paths", []):
+            if time.monotonic() >= deadline:
+                break
             try:
                 response = client.get(urljoin(root, path), accept="application/xml,text/xml,*/*")
             except Exception:
@@ -108,9 +122,11 @@ class GenericWebCollector(BaseCollector):
                     rows.append((loc, lastmod))
         return rows
 
-    def _from_rss(self, client: HttpClient, root: str, keywords: Iterable[str], days: int) -> List[tuple]:
+    def _from_rss(self, client: HttpClient, root: str, keywords: Iterable[str], days: int, deadline: float) -> List[tuple]:
         rows: List[tuple] = []
         for path in self.source_config.get("rss_paths", []):
+            if time.monotonic() >= deadline:
+                break
             try:
                 response = client.get(urljoin(root, path), accept="application/rss+xml,application/xml,text/xml,*/*")
             except Exception:
@@ -122,17 +138,21 @@ class GenericWebCollector(BaseCollector):
                     rows.append((item["url"], item.get("published_at", "")))
         return rows
 
-    def _from_search_and_listing(self, client: HttpClient, root: str, domain: str, keywords: Iterable[str]) -> List[tuple]:
+    def _from_search_and_listing(self, client: HttpClient, root: str, domain: str, keywords: Iterable[str], deadline: float) -> List[tuple]:
         rows: List[tuple] = []
         paths = []
         paths.extend(self.source_config.get("search_paths", []))
         paths.extend(self.source_config.get("product_paths", []))
         paths.extend(self.source_config.get("category_paths", []))
         for path in paths:
+            if time.monotonic() >= deadline:
+                break
             expanded_paths = [path]
             if "{keyword}" in path:
                 expanded_paths = [path.replace("{keyword}", keyword) for keyword in list(keywords)[:4]]
             for expanded in expanded_paths:
+                if time.monotonic() >= deadline:
+                    break
                 url = expand_search_path(root, expanded, "") if "{keyword}" not in expanded else expand_search_path(root, expanded, "")
                 try:
                     response = client.get(url)

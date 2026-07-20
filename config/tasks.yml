@@ -164,7 +164,8 @@ sources:
     domains:
       - certcheck.worldathletics.org
     max_candidates_per_category: 12
-    timeout_seconds: 20
+    timeout_seconds: 8
+    deadline_seconds: 12
     retry_count: 1
     use_for:
       - professional-running
@@ -182,7 +183,8 @@ sources:
     domains:
       - xiaohongshu.com
     max_candidates_per_category: 12
-    timeout_seconds: 25
+    timeout_seconds: 10
+    deadline_seconds: 25
     retry_count: 2
     use_for:
       - professional-running
@@ -200,7 +202,8 @@ sources:
     enabled: true
     priority: 88
     max_candidates_per_category: 26
-    timeout_seconds: 20
+    timeout_seconds: 8
+    deadline_seconds: 30
     retry_count: 1
     strategy_order:
       - sitemap
@@ -252,7 +255,8 @@ sources:
     enabled: true
     priority: 74
     max_candidates_per_category: 28
-    timeout_seconds: 20
+    timeout_seconds: 8
+    deadline_seconds: 30
     retry_count: 1
     strategy_order:
       - rss
