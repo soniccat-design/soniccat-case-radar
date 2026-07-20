@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.ai.reasoner import ReasonGenerator
@@ -46,8 +47,27 @@ def run_daily(
     category_summary: Dict[str, Dict[str, Any]] = {}
     reasoner = ReasonGenerator(config)
     active_collectors = collectors if collectors is not None else build_collectors(config, blocked_sources)
+    run_config = global_config.get("run", {})
+    started_at = time.monotonic()
+    max_total_seconds = int(run_config.get("max_total_seconds", 0) or 0)
+    max_category_seconds = int(run_config.get("max_seconds_per_category", 0) or 0)
 
     for category in categories:
+        if max_total_seconds and time.monotonic() - started_at >= max_total_seconds:
+            category_summary[category["id"]] = {
+                "name": category["name"],
+                "selected": 0,
+                "daily_limit": int(category.get("daily_limit", 3)),
+                "used_fallback_days": False,
+                "skipped_reason": "daily runtime budget reached",
+            }
+            continue
+        deadline = None
+        if max_total_seconds:
+            deadline = started_at + max_total_seconds
+        if max_category_seconds:
+            category_deadline = time.monotonic() + max_category_seconds
+            deadline = min(deadline, category_deadline) if deadline else category_deadline
         selected, health, used_fallback = run_category(
             category=category,
             config=config,
@@ -58,6 +78,7 @@ def run_daily(
             reasoner=reasoner,
             primary_days=primary_days,
             fallback_days=fallback_days,
+            deadline=deadline,
         )
         daily_new_cases.extend(selected)
         source_health.extend([item.to_dict() for item in health])
@@ -107,13 +128,14 @@ def run_category(
     reasoner: ReasonGenerator,
     primary_days: int,
     fallback_days: int,
+    deadline: Optional[float] = None,
 ) -> Tuple[List[Dict[str, Any]], List[SourceHealth], bool]:
     daily_limit = int(category.get("daily_limit", 3))
-    primary_candidates, health = collect_from_sources(category, collectors, primary_days)
+    primary_candidates, health = collect_from_sources(category, collectors, primary_days, deadline=deadline)
     prepared = prepare_candidates(primary_candidates, category, config, existing_cases, blocked_cases, primary_days)
     used_fallback = False
-    if len(prepared) < daily_limit:
-        fallback_candidates, fallback_health = collect_from_sources(category, collectors, fallback_days)
+    if len(prepared) < daily_limit and not _deadline_reached(deadline):
+        fallback_candidates, fallback_health = collect_from_sources(category, collectors, fallback_days, deadline=deadline)
         health.extend(fallback_health)
         prepared = prepare_candidates(primary_candidates + fallback_candidates, category, config, existing_cases, blocked_cases, fallback_days)
         used_fallback = True
@@ -152,14 +174,48 @@ def run_category(
     return selected, health, used_fallback
 
 
-def collect_from_sources(category: Dict[str, Any], collectors: List[BaseCollector], days: int) -> Tuple[List[Candidate], List[SourceHealth]]:
+def collect_from_sources(
+    category: Dict[str, Any],
+    collectors: List[BaseCollector],
+    days: int,
+    deadline: Optional[float] = None,
+) -> Tuple[List[Candidate], List[SourceHealth]]:
     all_candidates: List[Candidate] = []
     health: List[SourceHealth] = []
     for collector in collectors:
+        if _deadline_reached(deadline):
+            health.append(
+                SourceHealth(
+                    collector.source_id,
+                    collector.source_type,
+                    "skipped",
+                    category=category.get("id", ""),
+                    message="runtime budget reached",
+                )
+            )
+            continue
+        source_config = getattr(collector, "source_config", {})
+        original_deadline = source_config.get("deadline_seconds") if isinstance(source_config, dict) else None
+        if deadline:
+            remaining = max(1, int(deadline - time.monotonic()))
+            if isinstance(source_config, dict):
+                if original_deadline:
+                    source_config["deadline_seconds"] = min(int(original_deadline), remaining)
+                else:
+                    source_config["deadline_seconds"] = remaining
         candidates, source_health = collector.safe_collect(category, days)
+        if isinstance(source_config, dict):
+            if original_deadline is None:
+                source_config.pop("deadline_seconds", None)
+            else:
+                source_config["deadline_seconds"] = original_deadline
         all_candidates.extend(candidates)
         health.append(source_health)
     return all_candidates, health
+
+
+def _deadline_reached(deadline: Optional[float]) -> bool:
+    return bool(deadline and time.monotonic() >= deadline)
 
 
 def prepare_candidates(

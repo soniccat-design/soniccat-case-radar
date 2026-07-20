@@ -5,6 +5,12 @@ on:
     # UTC 00:00 = 北京时间 08:00
     - cron: "0 0 * * *"
   workflow_dispatch:
+    inputs:
+      force_publish:
+        description: "手动运行时即使本轮新增为 0，也发布当前已有案例；用于首次部署。"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -83,12 +89,12 @@ jobs:
         run: python -m unittest discover -s tests
 
       - name: Build site
-        if: steps.daily.outputs.publish_allowed == 'true'
+        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
         working-directory: source
         run: python scripts/build_site.py
 
       - name: Persist data and case images to case-assets branch
-        if: steps.daily.outputs.publish_allowed == 'true'
+        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -114,17 +120,17 @@ jobs:
           git push origin HEAD:case-assets
 
       - name: Configure Pages
-        if: steps.daily.outputs.publish_allowed == 'true'
+        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
-        if: steps.daily.outputs.publish_allowed == 'true'
+        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
         uses: actions/upload-pages-artifact@v3
         with:
           path: source/site
 
       - name: Deploy to GitHub Pages
-        if: steps.daily.outputs.publish_allowed == 'true'
+        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
         id: deployment
         uses: actions/deploy-pages@v4
 

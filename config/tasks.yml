@@ -20,6 +20,10 @@ schedule:
   display_timezone: Asia/Shanghai
 
 global:
+  run:
+    # 防止公开网站慢响应拖垮整轮任务；单个分类到点后直接进入下一类。
+    max_total_seconds: 180
+    max_seconds_per_category: 50
   # 默认优先近一年；不足时扩展到近三年。禁止无限回溯。
   time_windows:
     primary_days: 365
@@ -165,7 +169,7 @@ sources:
       - certcheck.worldathletics.org
     max_candidates_per_category: 12
     timeout_seconds: 8
-    deadline_seconds: 12
+    deadline_seconds: 8
     retry_count: 1
     use_for:
       - professional-running
@@ -184,7 +188,7 @@ sources:
       - xiaohongshu.com
     max_candidates_per_category: 12
     timeout_seconds: 10
-    deadline_seconds: 25
+    deadline_seconds: 14
     retry_count: 2
     use_for:
       - professional-running
@@ -203,7 +207,7 @@ sources:
     priority: 88
     max_candidates_per_category: 26
     timeout_seconds: 8
-    deadline_seconds: 30
+    deadline_seconds: 14
     retry_count: 1
     strategy_order:
       - sitemap
@@ -256,7 +260,7 @@ sources:
     priority: 74
     max_candidates_per_category: 28
     timeout_seconds: 8
-    deadline_seconds: 30
+    deadline_seconds: 14
     retry_count: 1
     strategy_order:
       - rss
