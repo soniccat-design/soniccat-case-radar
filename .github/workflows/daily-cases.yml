@@ -107,12 +107,12 @@ jobs:
         run: python -m unittest discover -s tests
 
       - name: Build site
-        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
+        if: steps.daily.outputs.publish_allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish == true)
         working-directory: source
         run: python scripts/build_site.py
 
       - name: Persist data and case images to case-assets branch
-        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
+        if: steps.daily.outputs.publish_allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish == true)
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -138,17 +138,19 @@ jobs:
           git push origin HEAD:case-assets
 
       - name: Configure Pages
-        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
+        if: steps.daily.outputs.publish_allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish == true)
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Upload Pages artifact
-        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
+        if: steps.daily.outputs.publish_allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish == true)
         uses: actions/upload-pages-artifact@v3
         with:
           path: source/site
 
       - name: Deploy to GitHub Pages
-        if: steps.daily.outputs.publish_allowed == 'true' || inputs.force_publish == true
+        if: steps.daily.outputs.publish_allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish == true)
         id: deployment
         uses: actions/deploy-pages@v4
 
