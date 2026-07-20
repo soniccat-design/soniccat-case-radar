@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-label="图片暂不可用">
+  <rect width="1200" height="900" fill="#e6e9e4"/>
+  <path d="M242 575c94-108 224-165 392-171 100-4 201 18 324 67 36 14 52 55 36 90-12 28-39 45-69 45H273c-32 0-51-29-31-31Z" fill="#ffffff"/>
+  <path d="M336 519c90-54 183-82 279-84 94-2 186 18 277 58" fill="none" stroke="#8b9790" stroke-width="18" stroke-linecap="round"/>
+  <path d="M385 609h515" stroke="#141615" stroke-width="18" stroke-linecap="round" opacity=".28"/>
+  <text x="600" y="710" text-anchor="middle" font-family="Arial, sans-serif" font-size="38" fill="#66706b">图片加载失败</text>
+</svg>

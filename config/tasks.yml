@@ -1,0 +1,286 @@
+# SONIC CAT 专业鞋案例雷达配置
+# 说明：
+# - 日常任务只改这个文件即可扩展分类、来源、数量和规则。
+# - 代码不得写死分类、关键词、每日数量、来源域名和时间范围。
+# - GitHub Secrets 中的 AI_* 会覆盖 ai.default_env_keys 对应的运行配置。
+
+project:
+  name: SONIC CAT 专业鞋案例雷达
+  timezone: Asia/Shanghai
+  locale: zh-CN
+  site_output_dir: site
+  static_dir: static
+  templates_dir: templates
+  backend_data_dir: data
+  asset_state_dir: case_assets
+
+schedule:
+  # GitHub Actions 使用 UTC 00:00，对应北京时间 08:00。
+  cron_utc: "0 0 * * *"
+  display_timezone: Asia/Shanghai
+
+global:
+  # 默认优先近一年；不足时扩展到近三年。禁止无限回溯。
+  time_windows:
+    primary_days: 365
+    fallback_days: 1095
+  candidate_limits:
+    min_per_category: 20
+    max_per_category: 50
+  dedupe:
+    category_model_window_days: 30
+    perceptual_hash_max_distance: 6
+  image:
+    min_width: 500
+    min_height: 500
+    max_long_edge: 1400
+    target_max_kb: 250
+    output_format: webp
+    request_timeout_seconds: 20
+  reason:
+    min_cn_chars: 20
+    max_cn_chars: 40
+  scoring:
+    relevance: 40
+    image_quality: 25
+    freshness: 20
+    source_trust: 15
+  publish_guard:
+    # 三个分类全部为 0 条新增时，不覆盖上一版网站。
+    block_when_all_categories_empty: true
+  ai:
+    enabled: true
+    vision_preferred: true
+    timeout_seconds: 25
+    max_retries: 1
+    default_env_keys:
+      provider: AI_PROVIDER
+      api_key: AI_API_KEY
+      model: AI_MODEL
+      base_url: AI_BASE_URL
+
+categories:
+  - id: professional-running
+    name: 专业跑鞋案例
+    enabled: true
+    daily_limit: 3
+    route: /professional-running/
+    keywords_zh:
+      - 专业跑鞋
+      - 竞速跑鞋
+      - 碳板跑鞋
+      - 马拉松跑鞋
+      - 跑鞋新品
+    keywords_en:
+      - racing running shoes
+      - marathon racing shoes
+      - carbon plated running shoes
+      - elite running shoes
+    image_rules:
+      prefer:
+        - 完整侧面图
+        - 四分之三视角
+        - 清楚整鞋轮廓
+      reject:
+        - 纯鞋底图
+        - 人物穿搭为主
+        - 鞋体占比过小
+    reason_focus:
+      - 整鞋轮廓
+      - 速度感
+      - 鞋面与中底关系
+      - 功能结构表达
+      - 系列化设计语言
+
+  - id: running-outsole
+    name: 专业跑鞋底片案例
+    enabled: true
+    daily_limit: 3
+    route: /running-outsole/
+    keywords_zh:
+      - 跑鞋鞋底
+      - 跑鞋底片
+      - 跑鞋大底
+      - 碳板跑鞋鞋底
+    keywords_en:
+      - running shoe outsole
+      - racing shoe outsole
+      - carbon running shoe sole
+      - marathon shoe outsole
+    image_rules:
+      require:
+        - 清楚展示外底或底片
+        - 鞋底面积占画面主要区域
+        - 能识别橡胶分区、镂空或底纹
+      reject:
+        - 看不清鞋底的侧面图
+        - 宣传海报
+        - 多图拼贴
+    reason_focus:
+      - 橡胶分区
+      - 镂空结构
+      - 底纹方向
+      - 受力区域
+      - 减重逻辑
+      - 碳板展示
+
+  - id: professional-spikes
+    name: 专业钉鞋案例
+    enabled: true
+    daily_limit: 3
+    route: /professional-spikes/
+    keywords_zh:
+      - 专业钉鞋
+      - 田径钉鞋
+      - 短跑钉鞋
+      - 中长跑钉鞋
+    keywords_en:
+      - track spikes
+      - sprint spikes
+      - distance spikes
+      - professional spike shoes
+    image_rules:
+      require:
+        - 能识别钉板、钉孔或专业钉鞋结构
+      reject:
+        - 普通跑鞋
+        - 穿搭图
+        - 无法判断钉板
+    reason_focus:
+      - 钉板造型
+      - 钉孔布局
+      - 前掌发力方向
+      - 鞋面锁定
+      - 器材感
+      - 轻量化结构
+
+sources:
+  - id: world_athletics_certcheck
+    name: 世界田联认证库
+    type: certification
+    adapter: world_athletics
+    enabled: true
+    priority: 100
+    domains:
+      - certcheck.worldathletics.org
+    max_candidates_per_category: 12
+    timeout_seconds: 20
+    retry_count: 1
+    use_for:
+      - professional-running
+      - professional-spikes
+    search_paths:
+      - /
+    notes: 用于发现和核验专业竞赛产品型号，不强制要求提供最终图片。
+
+  - id: xiaohongshu_public
+    name: 小红书公开页
+    type: social_public
+    adapter: xiaohongshu
+    enabled: true
+    priority: 82
+    domains:
+      - xiaohongshu.com
+    max_candidates_per_category: 12
+    timeout_seconds: 25
+    retry_count: 2
+    use_for:
+      - professional-running
+      - running-outsole
+      - professional-spikes
+    no_login: true
+    no_cookie: true
+    search_url: https://www.xiaohongshu.com/search_result?keyword={keyword}
+    notes: 每次运行都会尝试；失败只记录日志并由其他来源补足。
+
+  - id: brand_official_sites
+    name: 品牌官网白名单
+    type: brand
+    adapter: brand_site
+    enabled: true
+    priority: 88
+    max_candidates_per_category: 26
+    timeout_seconds: 20
+    retry_count: 1
+    strategy_order:
+      - sitemap
+      - rss
+      - onsite_search
+      - product_list
+      - new_arrivals
+      - structured_data
+      - open_graph
+    domains:
+      - nike.com
+      - adidas.com
+      - asics.com
+      - newbalance.com
+      - saucony.com
+      - hoka.com
+      - puma.com
+      - on.com
+      - brooksrunning.com
+      - mizuno.com
+      - li-ning.com
+      - xtep.com.cn
+      - anta.com
+      - 361sport.com
+    sitemap_paths:
+      - /sitemap.xml
+      - /sitemap_index.xml
+    rss_paths:
+      - /feed
+      - /rss
+    search_paths:
+      - /search?q={keyword}
+      - /search?query={keyword}
+      - /s?q={keyword}
+    product_paths:
+      - /running
+      - /running-shoes
+      - /new
+      - /new-arrivals
+    use_for:
+      - professional-running
+      - running-outsole
+      - professional-spikes
+
+  - id: running_media_sites
+    name: 跑鞋媒体白名单
+    type: media
+    adapter: media_site
+    enabled: true
+    priority: 74
+    max_candidates_per_category: 28
+    timeout_seconds: 20
+    retry_count: 1
+    strategy_order:
+      - rss
+      - sitemap
+      - onsite_search
+      - category_page
+      - structured_data
+      - open_graph
+    domains:
+      - believeintherun.com
+      - doctorsofrunning.com
+      - roadtrailrun.com
+      - runrepeat.com
+      - runnersworld.com
+    sitemap_paths:
+      - /sitemap.xml
+      - /post-sitemap.xml
+    rss_paths:
+      - /feed
+      - /rss
+    search_paths:
+      - /?s={keyword}
+      - /search?q={keyword}
+    category_paths:
+      - /shoe-reviews
+      - /reviews
+      - /running-shoes
+    use_for:
+      - professional-running
+      - running-outsole
+      - professional-spikes

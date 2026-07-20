@@ -1,0 +1,2 @@
+"""Static publishing helpers."""
+

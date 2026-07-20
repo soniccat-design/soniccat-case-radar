@@ -1,0 +1,7 @@
+# 下架案例配置
+# 命中 id、source_url、content_hash 或 image_hash 的案例会被过滤。
+blocked_ids: []
+blocked_source_urls: []
+blocked_content_hashes: []
+blocked_image_hashes: []
+blocked_normalized_model_names_by_category: []

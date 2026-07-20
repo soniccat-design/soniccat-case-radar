@@ -1,0 +1,139 @@
+name: Daily Professional Shoe Cases
+
+on:
+  schedule:
+    # UTC 00:00 = 北京时间 08:00
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: sonic-cat-daily-cases
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Checkout persisted case assets
+        id: checkout_assets
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: case-assets
+          path: asset-state
+
+      - name: Restore persisted data and images
+        shell: bash
+        working-directory: source
+        run: |
+          mkdir -p data case_assets/cases
+          if [ -d ../asset-state/data ]; then
+            cp -R ../asset-state/data/. data/
+          fi
+          if [ -d ../asset-state/case_assets ]; then
+            cp -R ../asset-state/case_assets/. case_assets/
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: source/requirements.txt
+
+      - name: Install dependencies
+        working-directory: source
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        working-directory: source
+        run: python -m playwright install --with-deps chromium
+
+      - name: Validate config
+        working-directory: source
+        run: python scripts/validate_config.py
+
+      - name: Run daily collector
+        id: daily
+        working-directory: source
+        env:
+          AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_MODEL: ${{ secrets.AI_MODEL }}
+          AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
+        run: python scripts/run_daily.py
+
+      - name: Run tests
+        working-directory: source
+        run: python -m unittest discover -s tests
+
+      - name: Build site
+        if: steps.daily.outputs.publish_allowed == 'true'
+        working-directory: source
+        run: python scripts/build_site.py
+
+      - name: Persist data and case images to case-assets branch
+        if: steps.daily.outputs.publish_allowed == 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -d asset-state/.git ]; then
+            rm -rf asset-state
+            mkdir asset-state
+            cd asset-state
+            git init
+            git checkout -b case-assets
+            git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            cd ..
+          fi
+          rm -rf asset-state/data asset-state/case_assets
+          mkdir -p asset-state
+          cp -R source/data asset-state/data
+          cp -R source/case_assets asset-state/case_assets
+          cd asset-state
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data case_assets
+          git commit -m "Update professional shoe case assets" || exit 0
+          git push origin HEAD:case-assets
+
+      - name: Configure Pages
+        if: steps.daily.outputs.publish_allowed == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: steps.daily.outputs.publish_allowed == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: source/site
+
+      - name: Deploy to GitHub Pages
+        if: steps.daily.outputs.publish_allowed == 'true'
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Upload debug logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonic-cat-case-radar-debug
+          path: |
+            source/data/source_health.json
+            source/data/run_summary.json
+          if-no-files-found: ignore

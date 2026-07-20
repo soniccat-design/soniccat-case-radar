@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <meta name="description" content="{{ description }}">
+    <link rel="stylesheet" href="{{ base_path }}static/styles.css">
+  </head>
+  <body data-placeholder="{{ base_path }}static/placeholder.svg">
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="{{ base_path }}index.html" aria-label="返回首页">
+          <span class="brand-mark">SONIC CAT 专业鞋案例雷达</span>
+          <span class="brand-sub">专业跑鞋 / 底片 / 钉鞋案例库</span>
+        </a>
+        <nav class="nav" aria-label="页面导航">
+          {% for item in nav %}
+          <a href="{{ base_path }}{{ item.href }}" {% if item.active %}aria-current="page"{% endif %}>{{ item.label }}</a>
+          {% endfor %}
+        </nav>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="hero">
+        <p class="eyebrow">{{ eyebrow }}</p>
+        <h1>{{ heading }}</h1>
+        <p class="lead">{{ lead }}</p>
+      </section>
+
+      <section class="toolbar" aria-label="案例筛选">
+        <div class="filters">
+          <button class="filter-button is-active" data-filter="all" aria-pressed="true">全部</button>
+          {% for category in categories %}
+          <button class="filter-button" data-filter="{{ category.id }}" aria-pressed="false">{{ category.name }}</button>
+          {% endfor %}
+        </div>
+        <div class="result-count" data-result-count>{{ cases|length }} 个案例</div>
+      </section>
+
+      {% if cases %}
+      <section class="case-grid" aria-label="案例列表">
+        {% for case in cases %}
+        <article class="case-card" data-category="{{ case.category }}">
+          <img class="case-image" src="{{ base_path }}{{ case.image_path }}" alt="{{ case.category_name }}案例图片" loading="lazy" data-fallback="true">
+          <div class="case-body">
+            <span class="case-category">{{ case.category_name }}</span>
+            <p class="case-reason">{{ case.reason }}</p>
+          </div>
+        </article>
+        {% endfor %}
+      </section>
+      {% else %}
+      <div class="empty-state">当前没有可展示案例，系统会在下一次自动任务中继续补足。</div>
+      {% endif %}
+    </main>
+
+    <footer class="site-footer">
+      <div class="page-shell">仅展示设计参考信息；来源、评分和抓取过程保存在后台用于核验与下架。</div>
+    </footer>
+    <script src="{{ base_path }}static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+# 屏蔽来源配置
+# 支持按 source id 或域名暂停；适合某网站失效、版权风险或抓取异常时快速止血。
+blocked_source_ids: []
+blocked_domains: []
