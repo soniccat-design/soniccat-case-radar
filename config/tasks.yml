@@ -6,6 +6,11 @@
 
 project:
   name: SONIC CAT 专业鞋案例雷达
+  repository_owner: soniccat-design
+  repository_name: soniccat-case-radar
+  repository_url: https://github.com/soniccat-design/soniccat-case-radar
+  site_url: https://soniccat-design.github.io/soniccat-case-radar/
+  site_base_path: /soniccat-case-radar/
   timezone: Asia/Shanghai
   locale: zh-CN
   site_output_dir: site

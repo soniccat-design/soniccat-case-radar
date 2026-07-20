@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List
@@ -47,6 +48,8 @@ def build_site(config: Dict[str, Any]) -> Path:
     _copy_static(static_dir, output_dir / "static")
     _copy_case_images(public_all, output_dir, asset_state_dir)
     _write_public_data(output_dir, public_latest, public_all, categories)
+    site_url = _site_url(project)
+    site_base_path = _site_base_path(project)
 
     nav = _nav_items(categories, active="index")
     _render_page(
@@ -61,6 +64,7 @@ def build_site(config: Dict[str, Any]) -> Path:
         categories=categories,
         nav=nav,
         base_path="",
+        canonical_url=site_url,
     )
 
     for category in categories:
@@ -78,9 +82,12 @@ def build_site(config: Dict[str, Any]) -> Path:
             categories=categories,
             nav=_nav_items(categories, active=category["id"]),
             base_path="../",
+            canonical_url=_join_url(site_url, category["route"].strip("/") + "/"),
         )
 
-    _copy_404(config, output_dir)
+    _write_sitemap(output_dir, site_url, categories)
+    _write_robots(output_dir, site_url, site_base_path)
+    _copy_404(config, output_dir, site_base_path)
     return output_dir
 
 
@@ -136,6 +143,7 @@ def _render_page(
     categories: List[Dict[str, Any]],
     nav: List[Dict[str, Any]],
     base_path: str,
+    canonical_url: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     template_dir = Path(config.get("project", {}).get("templates_dir", "templates"))
@@ -154,10 +162,13 @@ def _render_page(
             categories=categories,
             nav=nav,
             base_path=base_path,
+            canonical_url=canonical_url,
         )
     except Exception:
-        html = _render_fallback(title, description, eyebrow, heading, lead, cases, categories, nav, base_path)
-    path.write_text(html, encoding="utf-8")
+        html_text = _render_fallback(title, description, eyebrow, heading, lead, cases, categories, nav, base_path, canonical_url)
+    else:
+        html_text = html
+    path.write_text(html_text, encoding="utf-8")
 
 
 def _render_fallback(
@@ -170,6 +181,7 @@ def _render_fallback(
     categories: List[Dict[str, Any]],
     nav: List[Dict[str, Any]],
     base_path: str,
+    canonical_url: str,
 ) -> str:
     nav_html = "".join(
         '<a href="%s%s"%s>%s</a>'
@@ -184,9 +196,10 @@ def _render_fallback(
         )
         for case in cases
     )
-    return """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title><meta name="description" content="{description}"><link rel="stylesheet" href="{base}static/styles.css"></head><body data-placeholder="{base}static/placeholder.svg"><header class="site-header"><div class="header-inner"><a class="brand" href="{base}index.html"><span class="brand-mark">SONIC CAT 专业鞋案例雷达</span><span class="brand-sub">专业跑鞋 / 底片 / 钉鞋案例库</span></a><nav class="nav">{nav}</nav></div></header><main class="page-shell"><section class="hero"><p class="eyebrow">{eyebrow}</p><h1>{heading}</h1><p class="lead">{lead}</p></section><section class="toolbar"><div class="filters"><button class="filter-button is-active" data-filter="all" aria-pressed="true">全部</button>{filters}</div><div class="result-count" data-result-count>{count} 个案例</div></section><section class="case-grid">{cards}</section></main><footer class="site-footer"><div class="page-shell">仅展示设计参考信息；来源、评分和抓取过程保存在后台用于核验与下架。</div></footer><script src="{base}static/app.js"></script></body></html>""".format(
+    return """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title><meta name="description" content="{description}"><link rel="canonical" href="{canonical_url}"><meta property="og:type" content="website"><meta property="og:title" content="{title}"><meta property="og:description" content="{description}"><meta property="og:url" content="{canonical_url}"><link rel="stylesheet" href="{base}static/styles.css"></head><body data-placeholder="{base}static/placeholder.svg"><header class="site-header"><div class="header-inner"><a class="brand" href="{base}index.html"><span class="brand-mark">SONIC CAT 专业鞋案例雷达</span><span class="brand-sub">专业跑鞋 / 底片 / 钉鞋案例库</span></a><nav class="nav">{nav}</nav></div></header><main class="page-shell"><section class="hero"><p class="eyebrow">{eyebrow}</p><h1>{heading}</h1><p class="lead">{lead}</p></section><section class="toolbar"><div class="filters"><button class="filter-button is-active" data-filter="all" aria-pressed="true">全部</button>{filters}</div><div class="result-count" data-result-count>{count} 个案例</div></section><section class="case-grid">{cards}</section></main><footer class="site-footer"><div class="page-shell">仅展示设计参考信息；来源、评分和抓取过程保存在后台用于核验与下架。</div></footer><script src="{base}static/app.js"></script></body></html>""".format(
         title=title,
         description=description,
+        canonical_url=canonical_url,
         base=base_path,
         nav=nav_html,
         eyebrow=eyebrow,
@@ -211,7 +224,44 @@ def _nav_items(categories: List[Dict[str, Any]], active: str) -> List[Dict[str, 
     return rows
 
 
-def _copy_404(config: Dict[str, Any], output_dir: Path) -> None:
+def _copy_404(config: Dict[str, Any], output_dir: Path, site_base_path: str) -> None:
     template = Path(config.get("project", {}).get("templates_dir", "templates")) / "404.html"
     if template.exists():
-        shutil.copy2(template, output_dir / "404.html")
+        text = template.read_text(encoding="utf-8").replace("{{ site_base_path }}", site_base_path)
+        (output_dir / "404.html").write_text(text, encoding="utf-8")
+
+
+def _site_url(project: Dict[str, Any]) -> str:
+    configured = str(project.get("site_url", "")).strip()
+    if configured:
+        return configured.rstrip("/") + "/"
+    owner = str(project.get("repository_owner", "")).strip()
+    name = str(project.get("repository_name", "")).strip()
+    if owner and name:
+        return "https://%s.github.io/%s/" % (owner, name)
+    return "/"
+
+
+def _site_base_path(project: Dict[str, Any]) -> str:
+    configured = str(project.get("site_base_path", "")).strip()
+    if configured:
+        return "/" + configured.strip("/") + "/"
+    name = str(project.get("repository_name", "")).strip()
+    return "/" + name.strip("/") + "/" if name else "/"
+
+
+def _join_url(base: str, path: str) -> str:
+    return base.rstrip("/") + "/" + path.lstrip("/")
+
+
+def _write_sitemap(output_dir: Path, site_url: str, categories: List[Dict[str, Any]]) -> None:
+    urls = [site_url]
+    urls.extend(_join_url(site_url, category["route"].strip("/") + "/") for category in categories)
+    body = "\n".join("  <url><loc>%s</loc></url>" % html.escape(url, quote=True) for url in urls)
+    text = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n%s\n</urlset>\n' % body
+    (output_dir / "sitemap.xml").write_text(text, encoding="utf-8")
+
+
+def _write_robots(output_dir: Path, site_url: str, site_base_path: str) -> None:
+    text = "User-agent: *\nAllow: %s\nSitemap: %ssitemap.xml\n" % (site_base_path, site_url)
+    (output_dir / "robots.txt").write_text(text, encoding="utf-8")

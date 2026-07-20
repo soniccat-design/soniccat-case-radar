@@ -13,6 +13,14 @@ from src.utils.config import load_tasks
 
 
 ROOT = Path(__file__).resolve().parents[1]
+TARGET_SITE_URL = "https://soniccat-design.github.io/soniccat-case-radar/"
+TARGET_BASE_PATH = "/soniccat-case-radar/"
+OLD_REPO_MARKERS = (
+    "liyulin040520" + "-hue",
+    "sonic-cat" + "-anli",
+    "liyulin040520" + "-hue.github.io",
+    "/sonic-cat" + "-anli/",
+)
 
 
 class PipelineAndSiteTests(unittest.TestCase):
@@ -71,12 +79,25 @@ class PipelineAndSiteTests(unittest.TestCase):
         output = build_site(config)
         self.assertTrue((output / "index.html").exists())
         self.assertTrue((output / "professional-running/index.html").exists())
+        self.assertTrue((output / "running-outsole/index.html").exists())
+        self.assertTrue((output / "professional-spikes/index.html").exists())
+        self.assertTrue((output / "sitemap.xml").exists())
+        self.assertTrue((output / "robots.txt").exists())
         public_data = json.loads((output / "data/cases.json").read_text(encoding="utf-8"))
         self.assertTrue(public_data)
         self.assertNotIn("source_url", public_data[0])
         combined_html = "\n".join(path.read_text(encoding="utf-8") for path in output.rglob("*.html"))
+        generated_text = combined_html
+        generated_text += "\n" + (output / "sitemap.xml").read_text(encoding="utf-8")
+        generated_text += "\n" + (output / "robots.txt").read_text(encoding="utf-8")
+        self.assertIn('rel="canonical" href="%s"' % TARGET_SITE_URL, combined_html)
+        self.assertIn('property="og:url" content="%s"' % TARGET_SITE_URL, combined_html)
+        self.assertIn(TARGET_SITE_URL + "professional-running/", generated_text)
+        self.assertIn("Allow: %s" % TARGET_BASE_PATH, generated_text)
         self.assertNotIn("example.invalid/internal", combined_html)
         self.assertNotIn("source_url", combined_html)
+        for marker in OLD_REPO_MARKERS:
+            self.assertNotIn(marker, generated_text)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ from src.utils.text import extract_domain, normalize_space
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (compatible; SonicCatCaseRadar/1.0; "
-    "+https://github.com/sonic-cat/case-radar)"
+    "+https://github.com/soniccat-design/soniccat-case-radar)"
 )
 
 
