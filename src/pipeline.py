@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
+import signal
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -51,6 +53,7 @@ def run_daily(
     started_at = time.monotonic()
     max_total_seconds = int(run_config.get("max_total_seconds", 0) or 0)
     max_category_seconds = int(run_config.get("max_seconds_per_category", 0) or 0)
+    max_source_seconds = int(run_config.get("max_seconds_per_source", 0) or 0)
 
     for category in categories:
         if max_total_seconds and time.monotonic() - started_at >= max_total_seconds:
@@ -79,6 +82,7 @@ def run_daily(
             primary_days=primary_days,
             fallback_days=fallback_days,
             deadline=deadline,
+            max_source_seconds=max_source_seconds,
         )
         daily_new_cases.extend(selected)
         source_health.extend([item.to_dict() for item in health])
@@ -129,13 +133,14 @@ def run_category(
     primary_days: int,
     fallback_days: int,
     deadline: Optional[float] = None,
+    max_source_seconds: int = 0,
 ) -> Tuple[List[Dict[str, Any]], List[SourceHealth], bool]:
     daily_limit = int(category.get("daily_limit", 3))
-    primary_candidates, health = collect_from_sources(category, collectors, primary_days, deadline=deadline)
+    primary_candidates, health = collect_from_sources(category, collectors, primary_days, deadline=deadline, max_source_seconds=max_source_seconds)
     prepared = prepare_candidates(primary_candidates, category, config, existing_cases, blocked_cases, primary_days)
     used_fallback = False
     if len(prepared) < daily_limit and not _deadline_reached(deadline):
-        fallback_candidates, fallback_health = collect_from_sources(category, collectors, fallback_days, deadline=deadline)
+        fallback_candidates, fallback_health = collect_from_sources(category, collectors, fallback_days, deadline=deadline, max_source_seconds=max_source_seconds)
         health.extend(fallback_health)
         prepared = prepare_candidates(primary_candidates + fallback_candidates, category, config, existing_cases, blocked_cases, fallback_days)
         used_fallback = True
@@ -179,15 +184,18 @@ def collect_from_sources(
     collectors: List[BaseCollector],
     days: int,
     deadline: Optional[float] = None,
+    max_source_seconds: int = 0,
 ) -> Tuple[List[Candidate], List[SourceHealth]]:
     all_candidates: List[Candidate] = []
     health: List[SourceHealth] = []
     for collector in collectors:
+        source_id = getattr(collector, "source_id", "unknown")
+        source_type = getattr(collector, "source_type", "unknown")
         if _deadline_reached(deadline):
             health.append(
                 SourceHealth(
-                    collector.source_id,
-                    collector.source_type,
+                    source_id,
+                    source_type,
                     "skipped",
                     category=category.get("id", ""),
                     message="runtime budget reached",
@@ -196,14 +204,26 @@ def collect_from_sources(
             continue
         source_config = getattr(collector, "source_config", {})
         original_deadline = source_config.get("deadline_seconds") if isinstance(source_config, dict) else None
+        source_deadline = 0
         if deadline:
             remaining = max(1, int(deadline - time.monotonic()))
+            source_deadline = _source_runtime_budget(source_config, remaining, max_source_seconds)
             if isinstance(source_config, dict):
-                if original_deadline:
-                    source_config["deadline_seconds"] = min(int(original_deadline), remaining)
-                else:
-                    source_config["deadline_seconds"] = remaining
-        candidates, source_health = collector.safe_collect(category, days)
+                source_config["deadline_seconds"] = source_deadline
+        elif isinstance(source_config, dict):
+            source_deadline = _source_runtime_budget(source_config, None, max_source_seconds)
+        try:
+            with _collector_timeout(source_deadline, source_id):
+                candidates, source_health = collector.safe_collect(category, days)
+        except TimeoutError as exc:
+            candidates = []
+            source_health = SourceHealth(
+                source_id,
+                source_type,
+                "failed",
+                category=category.get("id", ""),
+                message=str(exc)[:400],
+            )
         if isinstance(source_config, dict):
             if original_deadline is None:
                 source_config.pop("deadline_seconds", None)
@@ -216,6 +236,39 @@ def collect_from_sources(
 
 def _deadline_reached(deadline: Optional[float]) -> bool:
     return bool(deadline and time.monotonic() >= deadline)
+
+
+def _source_runtime_budget(source_config: Any, remaining_seconds: Optional[int], max_source_seconds: int) -> int:
+    budgets: List[int] = []
+    if remaining_seconds:
+        budgets.append(max(1, int(remaining_seconds)))
+    if max_source_seconds:
+        budgets.append(max(1, int(max_source_seconds)))
+    if isinstance(source_config, dict) and source_config.get("hard_timeout_seconds"):
+        budgets.append(max(1, int(source_config["hard_timeout_seconds"])))
+    return min(budgets) if budgets else 0
+
+
+@contextmanager
+def _collector_timeout(seconds: Any, source_id: str):
+    timeout_seconds = int(seconds or 0)
+    if timeout_seconds <= 0 or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def _raise_timeout(signum, frame):
+        raise TimeoutError("collector %s exceeded runtime budget of %ss" % (source_id, timeout_seconds))
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
 
 
 def prepare_candidates(

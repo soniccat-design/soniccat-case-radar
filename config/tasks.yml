@@ -29,6 +29,7 @@ global:
     # 防止公开网站慢响应拖垮整轮任务；单个分类到点后直接进入下一类。
     max_total_seconds: 180
     max_seconds_per_category: 50
+    max_seconds_per_source: 20
   # 默认优先近一年；不足时扩展到近三年。禁止无限回溯。
   time_windows:
     primary_days: 365
