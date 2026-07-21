@@ -2,8 +2,8 @@ name: Daily Professional Shoe Cases
 
 on:
   schedule:
-    # UTC 00:00 = 北京时间 08:00
-    - cron: "0 0 * * *"
+    # UTC 00:07 = 北京时间 08:07，避开 GitHub Actions 整点拥堵。
+    - cron: "7 0 * * *"
   workflow_dispatch:
     inputs:
       force_publish:
@@ -14,7 +14,7 @@ on:
       skip_live_collection:
         description: "手动运行时跳过真实抓取，直接发布当前案例库；用于首次快速部署。"
         required: false
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -107,6 +107,17 @@ jobs:
       - name: Run tests
         working-directory: source
         run: python -m unittest discover -s tests
+
+      - name: Explain skipped deployment
+        if: steps.daily.outputs.publish_allowed != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.force_publish == true)
+        run: |
+          {
+            echo ""
+            echo "## 发布保护"
+            echo ""
+            echo "- 本轮新增案例为 0，已按保护机制跳过 Pages 覆盖。"
+            echo "- 工作流已正常运行，run_summary 和 source_health 已作为调试日志保存。"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build site
         if: steps.daily.outputs.publish_allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish == true)

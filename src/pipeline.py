@@ -62,6 +62,9 @@ def run_daily(
                 "selected": 0,
                 "daily_limit": int(category.get("daily_limit", 3)),
                 "used_fallback_days": False,
+                "raw_candidates": 0,
+                "filtered_candidates": 0,
+                "filtered_out": 0,
                 "skipped_reason": "daily runtime budget reached",
             }
             continue
@@ -71,7 +74,7 @@ def run_daily(
         if max_category_seconds:
             category_deadline = time.monotonic() + max_category_seconds
             deadline = min(deadline, category_deadline) if deadline else category_deadline
-        selected, health, used_fallback = run_category(
+        selected, health, used_fallback, stats = run_category(
             category=category,
             config=config,
             collectors=active_collectors,
@@ -91,6 +94,9 @@ def run_daily(
             "selected": len(selected),
             "daily_limit": int(category.get("daily_limit", 3)),
             "used_fallback_days": used_fallback,
+            "raw_candidates": stats["raw_candidates"],
+            "filtered_candidates": stats["filtered_candidates"],
+            "filtered_out": max(0, stats["raw_candidates"] - stats["filtered_candidates"]),
         }
 
     publish_allowed = True
@@ -114,6 +120,7 @@ def run_daily(
         "selected_total": len(daily_new_cases),
         "categories": category_summary,
         "source_health_summary": source_health_doc["summary"],
+        "source_health": source_health_doc["sources"],
     }
     write_json(data_dir / "run_summary.json", summary)
 
@@ -134,7 +141,7 @@ def run_category(
     fallback_days: int,
     deadline: Optional[float] = None,
     max_source_seconds: int = 0,
-) -> Tuple[List[Dict[str, Any]], List[SourceHealth], bool]:
+) -> Tuple[List[Dict[str, Any]], List[SourceHealth], bool, Dict[str, int]]:
     daily_limit = int(category.get("daily_limit", 3))
     primary_candidates, health = collect_from_sources(category, collectors, primary_days, deadline=deadline, max_source_seconds=max_source_seconds)
     prepared = prepare_candidates(primary_candidates, category, config, existing_cases, blocked_cases, primary_days)
@@ -148,6 +155,7 @@ def run_category(
     weights = config.get("global", {}).get("scoring", {})
     sorted_candidates = score_and_sort(prepared, category, weights, primary_days)
     selected: List[Dict[str, Any]] = []
+    selected_source_counts: Dict[Tuple[str, int], int] = {}
     now_iso = iso_now()
     image_config = config.get("global", {}).get("image", {})
     for candidate in sorted_candidates:
@@ -171,12 +179,16 @@ def run_category(
         if saved is None:
             candidate.metadata["final_image_error"] = "webp conversion failed"
             continue
+        source_key = (candidate.source_id or "unknown", int(candidate.metadata.get("collection_window_days", 0) or 0))
+        selected_source_counts[source_key] = selected_source_counts.get(source_key, 0) + 1
         selected.append(candidate.to_case_record(case_id, "assets/cases/%s.webp" % case_id, now_iso))
 
-    selected_urls = {case["source_url"] for case in selected}
-    for item in health:
-        item.selected = sum(1 for url in selected_urls if item.source_id)
-    return selected, health, used_fallback
+    _annotate_source_health(health, prepared, selected_source_counts)
+    stats = {
+        "raw_candidates": sum(item.candidates for item in health),
+        "filtered_candidates": len(prepared),
+    }
+    return selected, health, used_fallback, stats
 
 
 def collect_from_sources(
@@ -198,6 +210,7 @@ def collect_from_sources(
                     source_type,
                     "skipped",
                     category=category.get("id", ""),
+                    window_days=days,
                     message="runtime budget reached",
                 )
             )
@@ -222,6 +235,7 @@ def collect_from_sources(
                 source_type,
                 "failed",
                 category=category.get("id", ""),
+                window_days=days,
                 message=str(exc)[:400],
             )
         if isinstance(source_config, dict):
@@ -229,6 +243,12 @@ def collect_from_sources(
                 source_config.pop("deadline_seconds", None)
             else:
                 source_config["deadline_seconds"] = original_deadline
+        for candidate in candidates:
+            if not candidate.source_id:
+                candidate.source_id = source_id
+            candidate.metadata["collection_window_days"] = days
+        source_health.category = source_health.category or category.get("id", "")
+        source_health.window_days = source_health.window_days or days
         all_candidates.extend(candidates)
         health.append(source_health)
     return all_candidates, health
@@ -236,6 +256,22 @@ def collect_from_sources(
 
 def _deadline_reached(deadline: Optional[float]) -> bool:
     return bool(deadline and time.monotonic() >= deadline)
+
+
+def _annotate_source_health(
+    health: List[SourceHealth],
+    prepared: List[Candidate],
+    selected_source_counts: Dict[Tuple[str, int], int],
+) -> None:
+    prepared_counts: Dict[Tuple[str, int], int] = {}
+    for candidate in prepared:
+        key = (candidate.source_id or "unknown", int(candidate.metadata.get("collection_window_days", 0) or 0))
+        prepared_counts[key] = prepared_counts.get(key, 0) + 1
+    for item in health:
+        key = (item.source_id, int(item.window_days or 0))
+        item.filtered_remaining = prepared_counts.get(key, 0)
+        item.filtered_out = max(0, int(item.candidates or 0) - item.filtered_remaining)
+        item.selected = selected_source_counts.get(key, 0)
 
 
 def _source_runtime_budget(source_config: Any, remaining_seconds: Optional[int], max_source_seconds: int) -> int:
@@ -349,14 +385,19 @@ def summary_markdown(summary: Dict[str, Any]) -> str:
     lines = ["# SONIC CAT 专业鞋案例雷达", ""]
     lines.append("- 是否允许发布：`%s`" % ("是" if summary.get("publish_allowed") else "否"))
     lines.append("- 本轮新增案例：`%s`" % summary.get("selected_total", 0))
+    if not summary.get("publish_allowed"):
+        lines.append("- 发布保护：`本轮新增为 0，已跳过 Pages 覆盖，上一版网页保持不变`")
     lines.append("")
-    lines.append("| 分类 | 新增 | 每日目标 | 是否扩展近三年 |")
-    lines.append("| --- | ---: | ---: | --- |")
+    lines.append("| 分类 | 原始候选 | 筛选后 | 筛除 | 新增 | 每日目标 | 是否扩展近三年 |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | --- |")
     for row in summary.get("categories", {}).values():
         lines.append(
-            "| %s | %s | %s | %s |"
+            "| %s | %s | %s | %s | %s | %s | %s |"
             % (
                 row.get("name", ""),
+                row.get("raw_candidates", 0),
+                row.get("filtered_candidates", 0),
+                row.get("filtered_out", 0),
                 row.get("selected", 0),
                 row.get("daily_limit", 0),
                 "是" if row.get("used_fallback_days") else "否",
@@ -366,4 +407,27 @@ def summary_markdown(summary: Dict[str, Any]) -> str:
     lines.append("## 来源健康")
     for key, value in summary.get("source_health_summary", {}).items():
         lines.append("- %s: `%s`" % (key, value))
+    lines.append("")
+    lines.append("| 分类 | 来源 | 时间范围 | 状态 | 原始候选 | 筛选后 | 筛除 | 入选 | 失败原因 |")
+    lines.append("| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- |")
+    for row in summary.get("source_health", []):
+        lines.append(
+            "| %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                row.get("category", ""),
+                row.get("source_id", ""),
+                row.get("window_days", 0),
+                row.get("status", ""),
+                row.get("candidates", 0),
+                row.get("filtered_remaining", 0),
+                row.get("filtered_out", 0),
+                row.get("selected", 0),
+                _summary_cell(row.get("message", "")),
+            )
+        )
     return "\n".join(lines) + "\n"
+
+
+def _summary_cell(value: Any) -> str:
+    text = str(value or "").replace("|", "/").replace("\n", " ").strip()
+    return text[:180]

@@ -57,7 +57,10 @@ class SourceHealth:
     category: str = ""
     domain: str = ""
     candidates: int = 0
+    filtered_remaining: int = 0
+    filtered_out: int = 0
     selected: int = 0
+    window_days: int = 0
     message: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -68,7 +71,10 @@ class SourceHealth:
             "category": self.category,
             "domain": self.domain,
             "candidates": self.candidates,
+            "filtered_remaining": self.filtered_remaining,
+            "filtered_out": self.filtered_out,
             "selected": self.selected,
+            "window_days": self.window_days,
             "message": self.message,
         }
 

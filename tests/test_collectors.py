@@ -40,6 +40,7 @@ class CollectorTests(unittest.TestCase):
         candidates, health = collect_from_sources({"id": "professional-running"}, [FailingCollector(), GoodCollector()], 365)
         self.assertEqual(len(candidates), 1)
         self.assertEqual([item.status for item in health], ["failed", "ok"])
+        self.assertEqual([item.window_days for item in health], [365, 365])
 
     def test_source_timeout_does_not_block_following_sources(self) -> None:
         class HangingCollector:
@@ -80,6 +81,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertEqual([item.status for item in health], ["failed", "ok"])
         self.assertIn("exceeded runtime budget", health[0].message)
+        self.assertEqual([item.window_days for item in health], [365, 365])
 
 
 if __name__ == "__main__":

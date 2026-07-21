@@ -60,7 +60,7 @@ class PipelineAndSiteTests(unittest.TestCase):
         with patch("src.pipeline.collect_from_sources", side_effect=[([], []), ([], [])]), patch(
             "src.pipeline.prepare_candidates", side_effect=prepared_side_effect
         ), patch("src.pipeline.save_webp", return_value=ROOT / "case_assets/cases/fake.webp"):
-            selected, health, used_fallback = run_category(
+            selected, health, used_fallback, stats = run_category(
                 category,
                 config,
                 collectors,
@@ -73,6 +73,7 @@ class PipelineAndSiteTests(unittest.TestCase):
             )
         self.assertTrue(used_fallback)
         self.assertEqual(len(selected), 3)
+        self.assertEqual(stats["filtered_candidates"], 3)
 
     def test_site_generation_and_no_source_url_leak(self) -> None:
         config = load_tasks(ROOT / "config/tasks.yml")
