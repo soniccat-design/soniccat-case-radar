@@ -20,8 +20,8 @@ project:
   asset_state_dir: case_assets
 
 schedule:
-  # GitHub Actions 使用 UTC 00:00，对应北京时间 08:00。
-  cron_utc: "0 0 * * *"
+  # GitHub Actions 使用 UTC 00:07，对应北京时间 08:07。
+  cron_utc: "7 0 * * *"
   display_timezone: Asia/Shanghai
 
 global:
@@ -30,6 +30,9 @@ global:
     max_total_seconds: 180
     max_seconds_per_category: 50
     max_seconds_per_source: 20
+    # 图片校验同样纳入预算；不降低质量标准，只避免慢图拖垮整轮任务。
+    max_seconds_per_image: 6
+    max_image_checks_per_category: 24
   # 默认优先近一年；不足时扩展到近三年。禁止无限回溯。
   time_windows:
     primary_days: 365

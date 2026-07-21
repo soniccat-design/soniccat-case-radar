@@ -9,7 +9,7 @@ from src.collectors.http import HttpClient
 
 
 def download_image_bytes(url: str, timeout: int = 20) -> bytes:
-    client = HttpClient(timeout=timeout, retries=1)
+    client = HttpClient(timeout=timeout, retries=0)
     response = client.get(url, accept="image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
     return response.content
 

@@ -144,12 +144,20 @@ def run_category(
 ) -> Tuple[List[Dict[str, Any]], List[SourceHealth], bool, Dict[str, int]]:
     daily_limit = int(category.get("daily_limit", 3))
     primary_candidates, health = collect_from_sources(category, collectors, primary_days, deadline=deadline, max_source_seconds=max_source_seconds)
-    prepared = prepare_candidates(primary_candidates, category, config, existing_cases, blocked_cases, primary_days)
+    prepared = prepare_candidates(primary_candidates, category, config, existing_cases, blocked_cases, primary_days, deadline=deadline)
     used_fallback = False
     if len(prepared) < daily_limit and not _deadline_reached(deadline):
         fallback_candidates, fallback_health = collect_from_sources(category, collectors, fallback_days, deadline=deadline, max_source_seconds=max_source_seconds)
         health.extend(fallback_health)
-        prepared = prepare_candidates(primary_candidates + fallback_candidates, category, config, existing_cases, blocked_cases, fallback_days)
+        prepared = prepare_candidates(
+            primary_candidates + fallback_candidates,
+            category,
+            config,
+            existing_cases,
+            blocked_cases,
+            fallback_days,
+            deadline=deadline,
+        )
         used_fallback = True
 
     weights = config.get("global", {}).get("scoring", {})
@@ -258,6 +266,12 @@ def _deadline_reached(deadline: Optional[float]) -> bool:
     return bool(deadline and time.monotonic() >= deadline)
 
 
+def _remaining_seconds(deadline: Optional[float]) -> int:
+    if not deadline:
+        return 0
+    return max(0, int(deadline - time.monotonic()))
+
+
 def _annotate_source_health(
     health: List[SourceHealth],
     prepared: List[Candidate],
@@ -314,21 +328,34 @@ def prepare_candidates(
     existing_cases: List[Dict[str, Any]],
     blocked_cases: Dict[str, Any],
     days: int,
+    deadline: Optional[float] = None,
 ) -> List[Candidate]:
     global_config = config.get("global", {})
+    run_config = global_config.get("run", {})
     image_config = global_config.get("image", {})
     candidate_limits = global_config.get("candidate_limits", {})
     max_candidates = int(candidate_limits.get("max_per_category", 50))
+    max_image_checks = int(run_config.get("max_image_checks_per_category", max_candidates) or max_candidates)
+    max_seconds_per_image = int(run_config.get("max_seconds_per_image", image_config.get("request_timeout_seconds", 20)) or 0)
     candidates = dedupe_urls(candidates)[:max_candidates]
     normalized: List[Candidate] = []
-    for candidate in candidates:
+    for candidate in candidates[:max_image_checks]:
+        if _deadline_reached(deadline):
+            break
         candidate.normalized_model_name = candidate.normalized_model_name or normalize_model_name(candidate.model_name or candidate.title)
         candidate.content_hash = candidate.content_hash or content_hash(candidate.title, candidate.source_url, candidate.image_url)
         if not candidate.captured_at:
             candidate.captured_at = iso_now()
         if candidate.image_bytes is None:
             try:
-                candidate.image_bytes = download_image_bytes(candidate.image_url, timeout=int(image_config.get("request_timeout_seconds", 20)))
+                configured_timeout = int(image_config.get("request_timeout_seconds", 20))
+                timeout = configured_timeout
+                if max_seconds_per_image:
+                    timeout = min(timeout, max_seconds_per_image)
+                remaining = _remaining_seconds(deadline)
+                if remaining:
+                    timeout = min(timeout, max(1, remaining))
+                candidate.image_bytes = download_image_bytes(candidate.image_url, timeout=timeout)
             except Exception as exc:
                 candidate.metadata["image_download_error"] = str(exc)[:200]
                 continue

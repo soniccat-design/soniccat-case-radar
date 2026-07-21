@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from src.ai.reasoner import ReasonGenerator
 from src.models import Candidate
-from src.pipeline import run_category
+from src.pipeline import prepare_candidates, run_category
 from src.publishing.site import build_site
 from src.utils.config import load_tasks
 
@@ -37,7 +37,7 @@ class PipelineAndSiteTests(unittest.TestCase):
         reasoner = Mock(spec=ReasonGenerator)
         reasoner.generate.return_value = "中底侧墙上扬与鞋面压线形成清楚推进节奏"
 
-        def prepared_side_effect(candidates, category, config, existing, blocked, days):
+        def prepared_side_effect(candidates, category, config, existing, blocked, days, **kwargs):
             count = 2 if days == 365 else 3
             return [
                 Candidate(
@@ -74,6 +74,40 @@ class PipelineAndSiteTests(unittest.TestCase):
         self.assertTrue(used_fallback)
         self.assertEqual(len(selected), 3)
         self.assertEqual(stats["filtered_candidates"], 3)
+
+    def test_prepare_candidates_limits_image_checks(self) -> None:
+        category = {"id": "professional-running", "name": "专业跑鞋案例", "keywords_en": ["running shoes"], "keywords_zh": []}
+        config = {
+            "global": {
+                "run": {"max_image_checks_per_category": 2, "max_seconds_per_image": 1},
+                "image": {"request_timeout_seconds": 10, "min_width": 500, "min_height": 500},
+                "dedupe": {"perceptual_hash_max_distance": 6, "category_model_window_days": 30},
+                "candidate_limits": {"max_per_category": 50},
+            }
+        }
+        candidates = [
+            Candidate(
+                category="professional-running",
+                title="carbon running shoes %s" % index,
+                source_url="https://example.com/%s" % index,
+                source_domain="example.com",
+                source_type="media",
+                image_url="https://example.com/%s.jpg" % index,
+                normalized_model_name="model %s" % index,
+            )
+            for index in range(5)
+        ]
+        with patch("src.pipeline.download_image_bytes", return_value=b"image") as mocked_download, patch(
+            "src.pipeline.inspect_image_bytes",
+            side_effect=[
+                {"ok": True, "width": 900, "height": 900, "clarity": 120.0, "image_hash": "0000000000000001"},
+                {"ok": True, "width": 900, "height": 900, "clarity": 120.0, "image_hash": "ffffffffffffffff"},
+            ],
+        ):
+            prepared = prepare_candidates(candidates, category, config, [], {}, 365)
+
+        self.assertEqual(mocked_download.call_count, 2)
+        self.assertEqual(len(prepared), 2)
 
     def test_site_generation_and_no_source_url_leak(self) -> None:
         config = load_tasks(ROOT / "config/tasks.yml")
