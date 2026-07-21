@@ -1,6 +1,43 @@
 {
   "generated_at": "2026-07-21T10:51:19+08:00",
-  "sources": [
+  "publish_allowed": false,
+  "selected_total": 0,
+  "categories": {
+    "professional-running": {
+      "name": "专业跑鞋案例",
+      "selected": 0,
+      "daily_limit": 3,
+      "used_fallback_days": false,
+      "raw_candidates": 0,
+      "filtered_candidates": 0,
+      "filtered_out": 0
+    },
+    "running-outsole": {
+      "name": "专业跑鞋底片案例",
+      "selected": 0,
+      "daily_limit": 3,
+      "used_fallback_days": false,
+      "raw_candidates": 0,
+      "filtered_candidates": 0,
+      "filtered_out": 0
+    },
+    "professional-spikes": {
+      "name": "专业钉鞋案例",
+      "selected": 0,
+      "daily_limit": 3,
+      "used_fallback_days": true,
+      "raw_candidates": 1,
+      "filtered_candidates": 0,
+      "filtered_out": 1
+    }
+  },
+  "source_health_summary": {
+    "ok": 12,
+    "failed": 0,
+    "partial": 0,
+    "skipped": 4
+  },
+  "source_health": [
     {
       "source_id": "world_athletics_certcheck",
       "source_type": "certification",
@@ -209,11 +246,5 @@
       "window_days": 1095,
       "message": "runtime budget reached"
     }
-  ],
-  "summary": {
-    "ok": 12,
-    "failed": 0,
-    "partial": 0,
-    "skipped": 4
-  }
+  ]
 }
